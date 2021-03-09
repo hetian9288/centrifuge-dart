@@ -34,7 +34,7 @@ class DisconnectEvent {
   DisconnectEvent(this.reason, this.shouldReconnect);
 
   final String reason;
-  final bool shouldReconnect;
+  final bool? shouldReconnect;
 
   @override
   String toString() {

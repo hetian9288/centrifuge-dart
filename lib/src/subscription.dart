@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:meta/meta.dart';
 
 import 'client.dart';
 import 'error.dart' as errors;
@@ -118,8 +117,8 @@ class SubscriptionImpl implements Subscription {
   Future<List<HistoryEvent>> history() async {
     final request = HistoryRequest()..channel = channel;
     final result = await _client.sendMessage(request, HistoryResult());
-    final events = result.publications.map(HistoryEvent.from).toList();
-    return events;
+    final events = result?.publications.map(HistoryEvent.from).toList();
+    return events ?? [];
   }
 
   void addPublish(PublishEvent event) => _publishController.add(event);
@@ -137,7 +136,7 @@ class SubscriptionImpl implements Subscription {
   void addUnsubscribe(UnsubscribeEvent event) =>
       _unsubscribeController.add(event);
 
-  Future _resubscribe({@required bool isResubscribed}) async {
+  Future _resubscribe({required bool isResubscribed}) async {
     try {
       final token = await _client.getToken(channel);
       final request = SubscribeRequest()
@@ -145,13 +144,15 @@ class SubscriptionImpl implements Subscription {
         ..token = token ?? '';
 
       final result = await _client.sendMessage(request, SubscribeResult());
-      final event = SubscribeSuccessEvent.from(result, isResubscribed);
-      _onSubscribeSuccess(event);
-      _recover(result);
+      if (result != null) {
+        final event = SubscribeSuccessEvent.from(result, isResubscribed);
+        _onSubscribeSuccess(event);
+        _recover(result);
+      }
     } catch (exception) {
       if (exception is errors.Error) {
         _onSubscribeError(
-            SubscribeErrorEvent(exception.message, exception.code));
+            SubscribeErrorEvent(exception.message ?? '', exception.code));
       } else {
         _onSubscribeError(SubscribeErrorEvent(exception.toString(), -1));
       }

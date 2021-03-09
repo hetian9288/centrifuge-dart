@@ -10,7 +10,7 @@ import 'proto/client.pb.dart';
 import 'subscription.dart';
 import 'transport.dart';
 
-Client createClient(String url, {ClientConfig config}) => ClientImpl(
+Client createClient(String url, {ClientConfig? config}) => ClientImpl(
       url,
       config ?? ClientConfig(),
       protobufTransportBuilder,
@@ -49,7 +49,7 @@ abstract class Client {
 
   /// Send RPC command
   ///
-  Future<RPCResult> rpc(List<int> data);
+  Future<RPCResult>? rpc(List<int> data);
 
   @alwaysThrows
   Future<void> send(List<int> data);
@@ -66,7 +66,7 @@ abstract class Client {
   ///
   /// You need to call [Subscription.subscribe] to start receiving events
   /// in the channel.
-  Subscription getSubscription(String channel);
+  Subscription? getSubscription(String channel);
 
   /// Remove the [subscription] and unsubscribe from [subscription.channel].
   ///
@@ -79,21 +79,25 @@ class ClientImpl implements Client, GeneratedMessageSender {
   final TransportBuilder _transportBuilder;
   final _subscriptions = <String, SubscriptionImpl>{};
 
-  Transport _transport;
-  String _token;
+  Transport? _transport;
+  String? _token;
 
   final String _url;
   ClientConfig _config;
+  void setConfig(ClientConfig conf) {
+    _config = conf;
+  }
 
   ClientConfig get config => _config;
-  List<int> _connectData;
-  String _clientID;
+  List<int>? _connectData;
+  String? _clientID;
 
   final _connectController = StreamController<ConnectEvent>.broadcast();
   final _disconnectController = StreamController<DisconnectEvent>.broadcast();
   final _messageController = StreamController<MessageEvent>.broadcast();
 
   _ClientState _state = _ClientState.disconnected;
+
 
   @override
   Stream<ConnectEvent> get connectStream => _connectController.stream;
@@ -110,6 +114,9 @@ class ClientImpl implements Client, GeneratedMessageSender {
   }
 
   bool get connected => _state == _ClientState.connected;
+  void setConnected() {
+    _state = _ClientState.connected;
+  }
 
   @override
   void setToken(String token) => _token = token;
@@ -123,11 +130,11 @@ class ClientImpl implements Client, GeneratedMessageSender {
       ..channel = channel
       ..data = data;
 
-    await _transport.sendMessage(request, PublishResult());
+    await _transport?.sendMessage(request, PublishResult());
   }
 
   @override
-  Future<RPCResult> rpc(List<int> data) => _transport.sendMessage(
+  Future<RPCResult>? rpc(List<int> data) => _transport?.sendMessage(
         RPCRequest()..data = data,
         RPCResult(),
       );
@@ -141,7 +148,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
   @override
   void disconnect() async {
     _processDisconnect(reason: 'manual disconnect', reconnect: false);
-    await _transport.close();
+    await _transport?.close();
   }
 
   @override
@@ -150,7 +157,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
   }
 
   @override
-  Subscription getSubscription(String channel) {
+  Subscription? getSubscription(String channel) {
     if (hasSubscription(channel)) {
       return _subscriptions[channel];
     }
@@ -163,7 +170,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
   }
 
   @override
-  Future<void> removeSubscription(Subscription subscription) async {
+  Future<void> removeSubscription(Subscription? subscription) async {
     if (subscription != null) {
       final String channel = subscription.channel;
       subscription.unsubscribe();
@@ -173,19 +180,19 @@ class ClientImpl implements Client, GeneratedMessageSender {
 
   Future<UnsubscribeEvent> unsubscribe(String channel) async {
     final request = UnsubscribeRequest()..channel = channel;
-    await _transport.sendMessage(request, UnsubscribeResult());
+    await _transport?.sendMessage(request, UnsubscribeResult());
     return UnsubscribeEvent();
   }
 
   @override
-  Future<Rep>
+  Future<Rep>?
       sendMessage<Req extends GeneratedMessage, Rep extends GeneratedMessage>(
               Req request, Rep result) =>
-          _transport.sendMessage(request, result);
+          _transport?.sendMessage(request, result);
 
   int _retryCount = 0;
 
-  void _processDisconnect({@required String reason, bool reconnect}) async {
+  void _processDisconnect({required String reason, bool? reconnect}) async {
     if (_state == _ClientState.disconnected) {
       return;
     }
@@ -198,7 +205,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
       _disconnectController.add(disconnect);
     }
 
-    if (reconnect) {
+    if (reconnect != null && reconnect) {
       _state = _ClientState.connecting;
       _retryCount += 1;
       await _config.retry(_retryCount);
@@ -217,7 +224,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
           config: TransportConfig(
               headers: _config.headers, pingInterval: _config.pingInterval));
 
-      await _transport.open(
+      await _transport?.open(
         _onPush,
         onError: (dynamic error) =>
             _processDisconnect(reason: error.toString(), reconnect: true),
@@ -227,25 +234,26 @@ class ClientImpl implements Client, GeneratedMessageSender {
 
       final request = ConnectRequest();
       if (_token != null) {
-        request.token = _token;
+        request.token = _token ?? '';
       }
 
       if (_connectData != null) {
-        request.data = _connectData;
+        request.data = _connectData ?? [];
       }
 
-      final result = await _transport.sendMessage(
+      final result = await _transport?.sendMessage(
         request,
         ConnectResult(),
       );
+      if (result != null) {
+        _clientID = result.client;
+        _retryCount = 0;
+        _state = _ClientState.connected;
+        _connectController.add(ConnectEvent.from(result));
 
-      _clientID = result.client;
-      _retryCount = 0;
-      _state = _ClientState.connected;
-      _connectController.add(ConnectEvent.from(result));
-
-      for (SubscriptionImpl subscription in _subscriptions.values) {
-        subscription.resubscribeIfNeeded();
+        for (SubscriptionImpl subscription in _subscriptions.values) {
+          subscription.resubscribeIfNeeded();
+        }
       }
     } catch (ex) {
       _processDisconnect(reason: ex.toString(), reconnect: true);
@@ -294,9 +302,9 @@ class ClientImpl implements Client, GeneratedMessageSender {
     }
   }
 
-  Future<String> getToken(String channel) async {
-    if (_isPrivateChannel(channel)) {
-      final event = PrivateSubEvent(_clientID, channel);
+  Future<String?> getToken(String channel) async {
+    if (_clientID != null && _isPrivateChannel(channel)) {
+      final event = PrivateSubEvent(_clientID!, channel);
       return _onPrivateSub(event);
     }
     return null;

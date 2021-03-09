@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:centrifuge/centrifuge.dart';
 import 'package:centrifuge/src/client.dart';
+import 'package:centrifuge/src/transport.dart';
 import 'package:centrifuge/src/proto/client.pb.dart';
 import 'package:test/test.dart';
 
@@ -11,21 +12,19 @@ import 'src/utils.dart';
 void main() {
   final url = 'test url';
 
-  Client client;
-  MockTransport transport;
-  ClientConfig clientConfig;
-  WaitRetry retry;
+  Client? client;
+  final MockTransport transport = MockTransport();
+  WaitRetry? retry;
+  final ClientConfig clientConfig =
+      ClientConfig(retry: (count) => retry?.call(count));
 
-  final subscription = (String name) => client.getSubscription(name);
+  final subscription = (String name) => client?.getSubscription(name);
 
   setUp(() {
-    transport = MockTransport();
-    clientConfig = ClientConfig(retry: (count) => retry?.call(count));
-
     client = ClientImpl(
       url,
       clientConfig,
-      ({url, config}) => transport
+      ({required String url, required TransportConfig config}) => transport
         ..url = url
         ..transportConfig = config,
     );
@@ -38,34 +37,35 @@ void main() {
       final s3 = subscription('some_another_channel');
 
       expect(s1, same(s2));
-      expect(s1.channel, 'some_channel');
+      expect(s1?.channel, 'some_channel');
 
       expect(s3, isNot(same(s1)));
-      expect(s3.channel, 'some_another_channel');
+      expect(s3?.channel, 'some_another_channel');
     });
 
     test('removeSubscription works correctly', () {
       final s1 = subscription('some_channel');
-      expect(true, client.hasSubscription(s1.channel));
-      client.removeSubscription(s1);
-      expect(false, client.hasSubscription(s1.channel));
+      if (s1 != null) {
+        expect(true, client?.hasSubscription(s1.channel));
+        client?.removeSubscription(s1);
+        expect(false, client?.hasSubscription(s1.channel));
+      }
     });
   });
 
   group('Connection', () {
     test('connect uses correct url and headers', () async {
-      client.connect();
-
+      client?.connect();
       transport.completeOpen();
 
       expect(transport.url, equals(url));
-      expect(transport.transportConfig.headers, same(clientConfig.headers));
+      expect(transport.transportConfig?.headers, same(clientConfig.headers));
     });
     test('connect sends request with data and token', () async {
-      client.setToken('test token');
-      client.setConnectData(utf8.encode('test connect data'));
+      client?.setToken('test token');
+      client?.setConnectData(utf8.encode('test connect data'));
 
-      client.connect();
+      client?.connect();
 
       transport.completeOpen();
 
@@ -77,10 +77,10 @@ void main() {
     });
 
     test('connect sends request and emits connect event', () async {
-      final eventFuture = client.connectStream.first;
+      final eventFuture = client?.connectStream.first;
 
-      final connectFinish = client.connectStream.first;
-      client.connect();
+      final connectFinish = client?.connectStream.first;
+      client?.connect();
       transport.completeOpen();
 
       final send = transport.sendListLast<ConnectRequest, ConnectResult>();
@@ -94,20 +94,20 @@ void main() {
 
       final event = await eventFuture;
 
-      expect(event.version, equals('0.0.0'));
-      expect(event.client, equals('mock client'));
-      expect(utf8.decode(event.data), equals('test data'));
+      expect(event?.version, equals('0.0.0'));
+      expect(event?.client, equals('mock client'));
+      expect(utf8.decode(event?.data ?? []), equals('test data'));
     });
   });
 
   group('Connected client', () {
     setUp(() {
-      client.connect();
+      client?.connect();
       transport.completeOpen();
     });
 
     test('publish sends correct data', () async {
-      client.publish('test channel', utf8.encode('test message'));
+      client?.publish('test channel', utf8.encode('test message'));
 
       final publish =
           transport.sendListLast<PublishRequest, PublishResult>().request;
@@ -116,7 +116,7 @@ void main() {
     });
 
     test('rpc sends correct data', () async {
-      client.rpc(utf8.encode('test rpc message'));
+      client?.rpc(utf8.encode('test rpc message'));
 
       final rpc = transport.sendListLast<RPCRequest, RPCResult>().request;
       expect(utf8.decode(rpc.data), equals('test rpc message'));
@@ -125,48 +125,48 @@ void main() {
 
   group('Disconnect', () {
     setUp(() {
-      client.connect();
+      client?.connect();
       transport.completeOpen();
       transport.sendListLast<ConnectRequest, ConnectResult>().complete();
     });
 
     test('socket closing triggers the corresponding events', () async {
-      subscription('test one').subscribe();
+      subscription('test one')?.subscribe();
 
       final unsubscribeOneFuture =
-          subscription('test one').unsubscribeStream.first;
+          subscription('test one')?.unsubscribeStream.first;
 
       final unsubscribeTwoFuture =
-          subscription('test two').unsubscribeStream.first;
+          subscription('test two')?.unsubscribeStream.first;
 
-      final disconnectFuture = client.disconnectStream.first;
+      final disconnectFuture = client?.disconnectStream.first;
 
-      transport.onDone('test reason', true);
+      transport.onDone!('test reason', true);
 
       final disconnect = await disconnectFuture;
 
-      expect(disconnect.reason, equals('test reason'));
-      expect(disconnect.shouldReconnect, isTrue);
+      expect(disconnect?.reason, equals('test reason'));
+      expect(disconnect?.shouldReconnect, isTrue);
 
       expect(unsubscribeOneFuture, completion(isNotNull));
       expect(unsubscribeTwoFuture, doesNotComplete);
     });
 
     test('socket error triggers the corresponding events', () async {
-      subscription('test one').subscribe();
+      subscription('test one')!.subscribe();
 
       final unsubscribeOneFuture =
-          subscription('test one').unsubscribeStream.first;
+          subscription('test one')!.unsubscribeStream.first;
       final unsubscribeTwoFuture =
-          subscription('test two').unsubscribeStream.first;
+          subscription('test two')!.unsubscribeStream.first;
 
-      final disconnectFuture = client.disconnectStream.first;
+      final disconnectFuture = client?.disconnectStream.first;
 
-      transport.onError('test error');
+      transport.onError!('test error');
 
       final disconnect = await disconnectFuture;
 
-      expect(disconnect.reason, equals('test error'));
+      expect(disconnect!.reason, equals('test error'));
       expect(disconnect.shouldReconnect, isTrue);
 
       expect(unsubscribeOneFuture, completion(isNotNull));
@@ -181,25 +181,25 @@ void main() {
       };
 
       for (var i = 1; i < 20; i++) {
-        transport.onDone('test reason', false);
+        transport.onDone!('test reason', false);
         expect(retryCalled, isFalse);
       }
     });
 
     test('client reconnects on error', () async {
-      Completer<void> retryCompleter;
-      int count;
+      Completer<void>? retryCompleter;
+      int? count;
 
       retry = (c) {
         count = c;
-        return retryCompleter.future;
+        return retryCompleter?.future;
       };
 
       for (var i = 1; i < 20; i++) {
-        final connectFuture = client.connectStream.first;
+        final connectFuture = client?.connectStream.first;
 
         retryCompleter = Completer<void>.sync();
-        transport.onError('test error');
+        transport.onError!('test error');
 
         expect(count, 1);
         retryCompleter.complete();
@@ -214,22 +214,22 @@ void main() {
 
       retry = (_) => fail('retry shouldn\'t be called');
 
-      client.disconnect();
-      transport.onDone(null, true);
+      client?.disconnect();
+      transport.onDone!("", true);
 
       expect(transport.sendList, hasLength(expectedMessages));
     });
 
     test('client reconnect increases retry count', () async {
       Completer<void> retryCompleter = Completer<void>.sync();
-      int count;
+      int? count;
 
       retry = (c) {
         count = c;
         return retryCompleter.future;
       };
 
-      transport.onError('test error');
+      transport.onError!('test error');
 
       for (var i = 1; i < 20; i++) {
         expect(count, i);
@@ -250,29 +250,29 @@ void main() {
       var countClientConnect = 0;
       var countClientDisconnect = 0;
 
-      subscription('test one').subscribe();
+      subscription('test one')?.subscribe();
 
       subscription('test one')
-          .unsubscribeStream
+          ?.unsubscribeStream
           .listen((_) => countOneChannelUnsubscribe += 1);
       subscription('test two')
-          .unsubscribeStream
+          ?.unsubscribeStream
           .listen((_) => countTwoChannelUnsubscribe += 1);
 
       subscription('test one')
-          .subscribeSuccessStream
+          ?.subscribeSuccessStream
           .listen((_) => countOneChannelSubscribe += 1);
       subscription('test two')
-          .subscribeSuccessStream
+          ?.subscribeSuccessStream
           .listen((_) => countTwoChannelSubscribe += 1);
 
-      client.connectStream.listen((_) => countClientConnect += 1);
-      client.disconnectStream.listen((_) => countClientDisconnect += 1);
+      client?.connectStream.listen((_) => countClientConnect += 1);
+      client?.disconnectStream.listen((_) => countClientDisconnect += 1);
 
       Completer<void> retryCompleter = Completer<void>.sync();
       retry = (c) => retryCompleter.future;
 
-      transport.onError('test error');
+      transport.onError!('test error');
 
       for (var i = 1; i < 20; i++) {
         retryCompleter.complete();
@@ -302,36 +302,36 @@ void main() {
       var countClientConnect = 0;
       var countClientDisconnect = 0;
 
-      subscription('test one').subscribe();
+      subscription('test one')?.subscribe();
 
       subscription('test one')
-          .subscribeSuccessStream
+          ?.subscribeSuccessStream
           .listen((_) => countOneChannelSubscribe += 1);
       subscription('test one')
-          .unsubscribeStream
+          ?.unsubscribeStream
           .listen((_) => countOneChannelUnsubscribe += 1);
 
       subscription('test two')
-          .subscribeSuccessStream
+          ?.subscribeSuccessStream
           .listen((_) => countTwoChannelSubscribe += 1);
       subscription('test two')
-          .unsubscribeStream
+          ?.unsubscribeStream
           .listen((_) => countTwoChannelUnsubscribe += 1);
 
-      client.connectStream.listen((_) => countClientConnect += 1);
-      client.disconnectStream.listen((_) => countClientDisconnect += 1);
+      client?.connectStream.listen((_) => countClientConnect += 1);
+      client?.disconnectStream.listen((_) => countClientDisconnect += 1);
 
-      Completer<void> retryCompleter;
+      Completer<void>? retryCompleter;
 
-      retry = (c) => retryCompleter.future;
+      retry = (c) => retryCompleter?.future;
 
       for (var i = 0; i < 20; i++) {
-        final connectFuture = client.connectStream.first;
+        final connectFuture = client?.connectStream.first;
 
         retryCompleter = Completer<void>.sync();
 
-        final disconnect = client.disconnectStream.first;
-        transport.onError('test error');
+        final disconnect = client?.disconnectStream.first;
+        transport.onError!('test error');
         await disconnect;
 
         retryCompleter.complete();
@@ -340,9 +340,9 @@ void main() {
         expect(connectFuture, completion(isNotNull));
 
         transport.sendList
-            .where((t) => t is Triplet<SubscribeRequest, SubscribeResult>)
-            .where((t) => !t.completer.isCompleted)
-            .forEach((t) => t.complete());
+            .where((dynamic t) => t is Triplet<SubscribeRequest, SubscribeResult>)
+            .where((dynamic t) => !t.completer.isCompleted)
+            .forEach((dynamic t) => t.complete());
       }
 
       await Future<void>.delayed(Duration(milliseconds: 1));

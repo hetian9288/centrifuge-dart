@@ -1,37 +1,39 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:centrifuge/centrifuge.dart';
 import 'package:centrifuge/src/client.dart';
-import 'package:centrifuge/src/proto/client.pb.dart' hide Error;
+import 'package:centrifuge/src/proto/client.pb.dart' as $pb;
 import 'package:centrifuge/src/transport.dart';
+// ignore: import_of_legacy_library_into_null_safe
 import 'package:mockito/mockito.dart';
 import 'package:protobuf/protobuf.dart';
 
 class MockWebSocket implements WebSocket {
-  final List<Command> commands = <Command>[];
+  final List<$pb.Command> commands = <$pb.Command>[];
 
   final _stubs = <CommandMatcher, SendAction>{};
 
-  @override
-  Duration pingInterval;
+  final StreamController<String> _controller = StreamController.broadcast();
 
   @override
-  String closeReason;
+  Duration? pingInterval;
+
+  @override
+  String? closeReason;
 
   @override
   void add(dynamic data) {
     final reader = CodedBufferReader(data);
-    final command = Command();
+    final command = $pb.Command();
     reader.readMessage(command, ExtensionRegistry.EMPTY);
 
     for (CommandMatcher func in _stubs.keys) {
       if (func(command)) {
-        final reply = Reply()..id = command.id;
-        if (_stubs[func]._error != null) {
-          reply.error = _stubs[func]._error;
-        } else if (_stubs[func].result != null) {
-          reply.result = _stubs[func]._result.writeToBuffer();
+        final reply = $pb.Reply()..id = command.id;
+        if (_stubs[func]?._error != null) {
+          reply.error = _stubs[func]!.error;
+        } else if (_stubs[func]?.result != null) {
+          reply.result = _stubs[func]!._result!.writeToBuffer().toList();
         }
 
         final replyData = reply.writeToBuffer();
@@ -39,7 +41,9 @@ class MockWebSocket implements WebSocket {
 
         final writer = CodedBufferWriter();
         writer.writeInt32NoTag(length);
-        onData(writer.toBuffer() + replyData);
+        if (onData != null) {
+          onData!(writer.toBuffer() + replyData);
+        }
       }
     }
 
@@ -52,24 +56,32 @@ class MockWebSocket implements WebSocket {
     return action;
   }
 
-  Function onData;
-  Function onError;
-  Function onDone;
+  Function(dynamic event)? onData;
+  Function? onError;
+  Function? onDone = () {};
 
   @override
-  StreamSubscription listen(void onData(dynamic event),
-      {Function onError, void onDone(), bool cancelOnError}) {
+  StreamSubscription listen(void onData(dynamic message)?,
+      {Function? onError, void onDone()?, bool? cancelOnError}) {
     this.onData = onData;
     this.onError = onError;
     this.onDone = onDone;
-    return null;
+    // return null;
+    return _controller.stream.listen((event) {});
   }
+  // StreamSubscription? listen(void onData(dynamic event),
+  //     {Function? onError, required void onDone(), bool cancelOnError}) {
+  //   this.onData = onData;
+  //   this.onError = onError;
+  //   this.onDone = onDone;
+  //   return null;
+  // }
 
   @override
-  Future close([int code, String reason]) {
+  Future close([int? code, String? reason]) {
     closeReason = reason;
-    onDone();
-    return null;
+    onDone!();
+    return _controller.sink.close();
   }
 
   @override
@@ -77,56 +89,58 @@ class MockWebSocket implements WebSocket {
 }
 
 class SendAction {
-  GeneratedMessage _error;
-  GeneratedMessage _result;
+  $pb.Error? _error;
+  $pb.Error get error => _error!;
+  GeneratedMessage? _result;
+  GeneratedMessage get result => _result!;
 
-  void result(GeneratedMessage result) {
+  set result(GeneratedMessage result) {
     _result = result;
   }
 
-  void error(GeneratedMessage error) {
-    _error = error;
+  set error($pb.Error err) {
+    _error = err;
   }
 }
 
-typedef CommandMatcher = Function(Command);
+typedef CommandMatcher = Function($pb.Command);
 
-CommandMatcher withMethod(MethodType type) =>
-    (Command command) => command.method == type;
+CommandMatcher withMethod($pb.MethodType type) =>
+    ($pb.Command command) => command.method == type;
 
 class MockTransport implements Transport {
-  String url;
-  TransportConfig transportConfig;
+  String? url;
+  TransportConfig? transportConfig;
 
   @override
-  Future close() {
+  Future? close() {
     // TODO: implement close
     return null;
   }
 
-  void Function(Push push) onPush;
-  void Function(dynamic) onError;
-  void Function(String, bool) onDone;
+  void Function($pb.Push push)? onPush;
+  Function? onError;
+  void Function(String, bool)? onDone;
 
-  Completer<void> _openCompleter;
+  Completer<void>? _openCompleter;
 
   void completeOpen() {
     assert(_openCompleter != null);
 
-    _openCompleter.complete();
+    _openCompleter?.complete();
     _openCompleter = null;
   }
 
   void completeOpenError(dynamic error) {
     assert(_openCompleter != null);
 
-    _openCompleter.completeError(error);
+    _openCompleter?.completeError(error);
     _openCompleter = null;
   }
 
   @override
-  Future open(void Function(Push push) onPush,
-      {Function onError, void Function(String, bool) onDone}) {
+  Future? open(void Function($pb.Push push) onPush,
+      {Function? onError, required void Function(String, bool) onDone}) {
     assert(_openCompleter == null);
     _openCompleter = Completer<void>.sync();
 
@@ -134,13 +148,13 @@ class MockTransport implements Transport {
     this.onError = onError;
     this.onDone = onDone;
 
-    return _openCompleter.future;
+    return _openCompleter?.future;
   }
 
-  final sendList = <Triplet>[];
+  final sendList = <dynamic>[];
 
-  Triplet<Req, Res> sendListLast<Req extends GeneratedMessage,
-          Res extends GeneratedMessage>() =>
+  Triplet<Req, Rep> sendListLast<Req extends GeneratedMessage,
+          Rep extends GeneratedMessage>() =>
       sendList.last;
 
   @override
@@ -186,10 +200,4 @@ class Triplet<Req extends GeneratedMessage, Res extends GeneratedMessage> {
   int get hashCode => request.hashCode ^ completer.hashCode ^ result.hashCode;
 }
 
-class MockClient extends Mock implements ClientImpl {
-  @override
-  ClientConfig config;
-
-  @override
-  bool connected;
-}
+class MockClient extends Mock implements ClientImpl {}
