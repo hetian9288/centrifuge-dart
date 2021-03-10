@@ -66,7 +66,7 @@ abstract class Client {
   ///
   /// You need to call [Subscription.subscribe] to start receiving events
   /// in the channel.
-  Subscription? getSubscription(String channel);
+  Subscription getSubscription(String channel);
 
   /// Remove the [subscription] and unsubscribe from [subscription.channel].
   ///
@@ -157,9 +157,9 @@ class ClientImpl implements Client, GeneratedMessageSender {
   }
 
   @override
-  Subscription? getSubscription(String channel) {
+  Subscription getSubscription(String channel) {
     if (hasSubscription(channel)) {
-      return _subscriptions[channel];
+      return _subscriptions[channel]!;
     }
 
     final subscription = SubscriptionImpl(channel, this);
