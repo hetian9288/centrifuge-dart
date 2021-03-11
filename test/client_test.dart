@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 import 'src/utils.dart';
 
 void main() {
-  final url = 'test url';
+  final url = 'ws://122.51.39.8:8000/connection/websocket?format=protobuf';
 
   Client? client;
   final MockTransport transport = MockTransport();

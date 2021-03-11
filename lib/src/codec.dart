@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:centrifuge/src/proto/client.pb.dart';
 import 'package:protobuf/protobuf.dart';
@@ -10,13 +11,13 @@ abstract class ReplyDecoder extends Converter<List<int>, List<Reply>> {}
 class ProtobufCommandEncoder extends CommandEncoder {
   @override
   List<int> convert(Command input) {
-    final commandData = input.writeToBuffer();
+    Uint8List commandData = input.writeToBuffer();
     final length = commandData.lengthInBytes;
 
     final writer = CodedBufferWriter();
     writer.writeInt32NoTag(length);
-
-    return writer.toBuffer() + commandData;
+    Uint8List data = writer.toBuffer();
+    return data.toList() + commandData.toList();
   }
 }
 

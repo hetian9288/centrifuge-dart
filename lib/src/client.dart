@@ -84,6 +84,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
 
   final String _url;
   ClientConfig _config;
+
   void setConfig(ClientConfig conf) {
     _config = conf;
   }
@@ -97,7 +98,6 @@ class ClientImpl implements Client, GeneratedMessageSender {
   final _messageController = StreamController<MessageEvent>.broadcast();
 
   _ClientState _state = _ClientState.disconnected;
-
 
   @override
   Stream<ConnectEvent> get connectStream => _connectController.stream;
@@ -114,6 +114,7 @@ class ClientImpl implements Client, GeneratedMessageSender {
   }
 
   bool get connected => _state == _ClientState.connected;
+
   void setConnected() {
     _state = _ClientState.connected;
   }
@@ -185,10 +186,9 @@ class ClientImpl implements Client, GeneratedMessageSender {
   }
 
   @override
-  Future<Rep>?
-      sendMessage<Req extends GeneratedMessage, Rep extends GeneratedMessage>(
-              Req request, Rep result) =>
-          _transport?.sendMessage(request, result);
+  Future<Rep>? sendMessage<Req extends GeneratedMessage, Rep extends GeneratedMessage>(
+          Req request, Rep result) =>
+      _transport?.sendMessage(request, result);
 
   int _retryCount = 0;
 
@@ -220,16 +220,17 @@ class ClientImpl implements Client, GeneratedMessageSender {
       _state = _ClientState.connecting;
 
       _transport = _transportBuilder(
-          url: _url,
-          config: TransportConfig(
-              headers: _config.headers, pingInterval: _config.pingInterval));
+        url: _url,
+        config: TransportConfig(
+          headers: _config.headers,
+          pingInterval: _config.pingInterval,
+        ),
+      );
 
       await _transport?.open(
         _onPush,
-        onError: (dynamic error) =>
-            _processDisconnect(reason: error.toString(), reconnect: true),
-        onDone: (reason, reconnect) =>
-            _processDisconnect(reason: reason, reconnect: reconnect),
+        onError: (dynamic error) => _processDisconnect(reason: error.toString(), reconnect: true),
+        onDone: (reason, reconnect) => _processDisconnect(reason: reason, reconnect: reconnect),
       );
 
       final request = ConnectRequest();
@@ -255,7 +256,8 @@ class ClientImpl implements Client, GeneratedMessageSender {
           subscription.resubscribeIfNeeded();
         }
       }
-    } catch (ex) {
+    } catch (ex, s) {
+    	print(s);
       _processDisconnect(reason: ex.toString(), reconnect: true);
     }
   }
@@ -310,11 +312,9 @@ class ClientImpl implements Client, GeneratedMessageSender {
     return null;
   }
 
-  Future<String> _onPrivateSub(PrivateSubEvent event) =>
-      _config.onPrivateSub(event);
+  Future<String> _onPrivateSub(PrivateSubEvent event) => _config.onPrivateSub(event);
 
-  bool _isPrivateChannel(String channel) =>
-      channel.startsWith(_config.privateChannelPrefix);
+  bool _isPrivateChannel(String channel) => channel.startsWith(_config.privateChannelPrefix);
 }
 
 enum _ClientState { connected, disconnected, connecting }
